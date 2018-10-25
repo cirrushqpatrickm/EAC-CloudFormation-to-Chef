@@ -1,0 +1,173 @@
+***NEEDS TO BE DONE IN CERTAIN ORDER!!!***
+
+  ***START SSM PARAM ADD***
+   "Description": "Create Environment SSM Parameters",
+   "Resources": {
+      "ShibbolethSSMEnvironment": {
+         "Type": "AWS::SSM::Parameter",
+         "Properties": {
+            "Name": "shibboleth-chef-Environment",
+            "Type": "String",
+            "Value": { "Ref":"Environment" },
+            "Description": "Shibboleth Environment"
+            }
+        },
+        "ShibbolethSSMHostedZone": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-HostedZone",
+               "Type": "String",
+               "Value": { "Ref":"HostedZone" },
+               "Description": "Shibboleth HostedZone"
+            }
+         },
+         "ShibbolethSSMLambdaPrincipalARN": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-LambdaPrincipalARN",
+               "Type": "String",
+               "Value": { "Ref":"LambdaPrincipalARN" },
+               "Description": "Shibboleth LambdaPrincipalARN"
+            }
+         },
+         "ShibbolethSSMS3TemplateBucketName": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-S3TemplateBucketName",
+               "Type": "String",
+               "Value": { "Ref":"S3TemplateBucketName" },
+               "Description": "Shibboleth S3TemplateBucketName"
+            }
+         },
+         "ShibbolethSSMCESaccountID": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-CESaccountID",
+               "Type": "String",
+               "Value": { "Ref":"CESaccountID" },
+               "Description": "Shibboleth CES Account ID"
+            }
+         },
+         "ShibbolethSSMApiSAMLAuthUrl": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-ApiSAMLAuthUrl",
+               "Type": "String",
+               "Value": { "Ref":"ApiSAMLAuthUrl" },
+               "Description": "Shibboleth ApiSAMLAuthUrl"
+            }
+         },
+         "ShibbolethSSMAtyponInternalLoadBalancer": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-AtyponInternalLoadBalancer",
+               "Type": "String",
+               "Value": { "Ref":"AtyponInternalLoadBalancer" },
+               "Description": "Shibboleth AtyponInternalLoadBalancer"
+            }
+         },
+         "ShibbolethSSMRDSMasterUser": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-RDSMasterUser",
+               "Type": "String",
+               "Value": { "Ref":"RDSMasterUser" },
+               "Description": "Shibboleth RDSMasterUser"
+            }
+         },
+         "ShibbolethSSMRDSMasterPassword": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-RDSMasterPassword",
+               "Type": "String",
+               "Value": { "Ref":"RDSMasterPassword" },
+               "Description": "Shibboleth RDSMasterPassword"
+            }
+         },
+         "ShibbolethSSMRegion": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-Region",
+               "Type": "String",
+               "Value": { "Ref" : "AWS::Region" },
+               "Description": "Shibboleth Region"
+            }
+         },
+         "ShibbolethSSMStackName": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-StackName",
+               "Type": "String",
+               "Value": { "Ref" : "AWS::StackName" },
+               "Description": "Shibboleth StackName"
+            }
+         },
+         "ShibbolethSSMLogentries": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-Logentries",
+               "Type": "String",
+               "Value": { "Ref":"ShibbolethLogentries" },
+               "Description": "Shibboleth Logentries, needs to be Ref : Logentries when going live"
+            }
+         },
+         "ShibbolethSSMCESHostedZone": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-CESHostedZone",
+               "Type": "String",
+               "Value": { "Ref" : "CESHostedZone" },
+               "Description": "Shibboleth CESHostedZone"
+            }
+         }
+    }
+}
+***END SSM PARAM ADD***
+
+
+***START CHEF SETUP & EXECUTION***
+"files" : {
+"home/ec2-user/shibboleth-gen.sh" : {
+  "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/chef/shibboleth-gen.rb" ] ] },
+  "authentication":"S3AccessCreds",
+  "mode"  : "000755",
+  "owner" : "root",
+  "group" : "root"
+},
+"home/ec2-user/EnvVariables.rb" : {
+  "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/chef/EnvVariables.rb" ] ] },
+  "authentication":"S3AccessCreds",
+  "mode"  : "000644",
+  "owner" : "root",
+  "group" : "root"
+},
+"home/ec2-user/get_configs.rb" : {
+  "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/chef/get_configs.rb" ] ] },
+  "authentication":"S3AccessCreds",
+  "mode"  : "000644",
+  "owner" : "root",
+  "group" : "root"
+},
+"home/ec2-user/commands.rb" : {
+  "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/chef/commands.rb" ] ] },
+  "authentication":"S3AccessCreds",
+  "mode"  : "000644",
+  "owner" : "root",
+  "group" : "root"
+}
+} 
+"commands" : {
+  "InstallCHEFDK": {
+    "command": "sudo curl -L https://omnitruck.chef.io/install.sh",
+    "ignoreErrors": "false"
+},
+  "PrepareCHEF": {
+  "command": "printf \"root = File.absolute_path(File.dirname(__FILE__))\n\nfile_cache_path root\ncookbook_path root + '/cookbooks'\n\" > /home/ec2-user/solo.rb",
+  "ignoreErrors": "false"
+},
+  "RunCHEF": {
+  "command": "sudo chef-solo -c /home/ec2-user/solo.rb shibboleth-gen.rb",
+  "ignoreErrors": "false"
+}
+}                 
+***END CHEF SETUP & EXECUTION***

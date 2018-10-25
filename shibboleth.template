@@ -1,0 +1,997 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "Base shibboleth template for OUP 20180314",
+
+  "Parameters" : {
+    "VPC": {
+      "Description" : "Name of an existing VPC",
+      "Type": "AWS::EC2::VPC::Id",
+      "ConstraintDescription" : "must be the name of an existing vpc"
+    },
+    "RDSMasterUser" : {
+      "Description" : "Master User for RDS",
+      "Type" : "String"
+    },
+    "RDSMasterPassword" : {
+      "Description" : "Master Password for RDS",
+      "Type" : "String"
+    },
+	"KeyName": {
+      "Description" : "Name of an existing keypair",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription" : "must be the name of an existing keypair"
+    },
+    "HostedZone": {
+      "Description" : "name of an existing Hosted Zone",
+      "Type": "String",
+      "ConstraintDescription" : "must be the name of an existing hosted zone in the same account (uat.access.cirrushq-test-domain.com used in testing)"
+    },
+    "CESHostedZone": {
+      "Description" : "name of an existing Hosted Zone",
+      "Type": "String",
+      "ConstraintDescription" : "must be the name of an existing hosted zone in the same account (uat.access.cirrushq-test-domain.com used in testing)"
+    },
+    "RDSSecurityGroup": {
+      "Description" : "ID of an existing RDS security group",
+      "Type": "AWS::EC2::SecurityGroup::Id",
+      "ConstraintDescription" : "must be the id of an existing security group"
+    },
+    "BastionSecurityGroup": {
+      "Description" : "ID of an existing Bastion security group",
+      "Type": "AWS::EC2::SecurityGroup::Id",
+      "ConstraintDescription" : "must be the id of an existing security group"
+    },
+    "Environment": {
+      "Description" : "EAC environment, dev/test/uat/production etc, must be unique in the AWS account",
+      "Type": "String",
+      "ConstraintDescription" : "EAC environment, dev/test/uat/production etc, must be unique in the AWS account"
+    },
+	"S3TemplateBucketName" : {
+      "Description" : "S3 bucket name where the templates are stored",
+      "Type" : "String"
+    },
+	"AMIshibboleth": {
+      "Description" : "AMI ID for Shibboleth server (use value of None for no Shibboleth)",
+      "Type": "String",
+      "Default": "None"
+    },
+	"ShibbolethASGinitialSize" : {
+      "Description" : "ASG initial size for Shibboleth nodes - 3 comma separated values for Min,Desired,Max",
+      "Type" : "CommaDelimitedList",
+      "Default" : "1, 1, 1"
+    },
+	"AtyponAppRole": {
+	  "Description" : "Atypon app role",
+	  "Type": "String"
+	},
+	"AtyponInstanceProfile": {
+	  "Description" : "atypon instance profile",
+	  "Type": "String"
+	},
+	"AtyponSubnet1a" : {
+	  "Description" : "AtyponSubnet1a",
+	  "Type" : "String"
+	},
+	"AtyponSubnet1b" : {
+	  "Description" : "AtyponSubnet1b",
+	  "Type" : "String"
+	},
+	"AtyponSubnet1c" : {
+	  "Description" : "AtyponSubnet1c",
+	  "Type" : "String"
+	},
+	"AtyponSecurityGroupId": {
+	  "Description" : "ID of an Atypon security group",
+      "Type": "AWS::EC2::SecurityGroup::Id",
+      "ConstraintDescription" : "must be the id of Atypon security group"
+	},
+	"AtyponELBSecurityGroupId": {
+	  "Description" : "ID of an atypon ELB security group",
+      "Type": "AWS::EC2::SecurityGroup::Id",
+      "ConstraintDescription" : "must be the id of an atypon ELB security group"
+	},
+	"AtyponPublicPort" : {
+      "Description" : "Public port for Atypon External ELB",
+      "Type" : "String",
+      "AllowedValues" : [ "16123", "6123" ],
+      "Default" : "16123"
+    },
+	"LambdaPrincipalARN": {
+      "Description" : "PRINCIPAL_ARN for ProcessSAML Lambda funtion, used with Shibboleth Server (Serverless EAC only)",
+      "Type": "String",
+      "Default": "arn:aws:iam::488628712875:saml-provider/Shibboleth-v3-uetest-env"
+    },
+	"ACESKMSDecryptUserKey": {
+	 "Description" : "Aces KMS decrypt user key",
+	 "Type": "String"
+	},
+	"ACESKMSDecryptSecretKey": {
+	 "Description" : "Aces KMS decrypt user key",
+	 "Type": "String"
+	},
+	"ACESDDBLambdaSecretKey": {
+	 "Description" : "Aces DDB lambda user key",
+	 "Type": "String"
+	},
+	"ACESDDBLambdaUserKey": {
+	 "Description" : "Aces DDB lambda user key",
+	 "Type": "String"
+	},
+	"CESaccountID": {
+      "Description" : "AWS Account ID where Roles used with IdP are residing",
+      "Type": "String",
+      "Default": "147351039156"
+    },
+	"AtyponInternalLoadBalancer": {
+	  "Description": "Atypon internal load balancer",
+	  "Type" : "String"
+	},
+    "ShibbolethLogentries": {
+      "Description" : "Enable/disable Logentries on the created environment",
+      "Type": "String",
+      "Default": "disable",
+      "ConstraintDescription" : "leave Disable if you don't want Logentries enabled on this stack, otherwise set the Enable",
+      "AllowedValues" : ["enable", "disable"]
+    },
+	"ELBSSLARN" : {
+      "Description" : "ARN of pre uploaded SSL to use with ELB",
+      "Type" : "String"
+    },
+	"ApiSAMLAuthUrl" : {
+		"Description" : "Api gateway url of saml auth",
+		"Type" : "String"
+	}
+  },
+  "Conditions" : {
+	"CreateShibboleth" : { "Fn::Not": [ { "Fn::Equals": [ { "Ref":"AMIshibboleth" }, "None" ] } ] }
+  },
+  "Resources" : {
+    "ShibbolethELBSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Condition" : "CreateShibboleth",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" },
+        "GroupDescription" : "Shibboleth ELB Security Group",
+        "SecurityGroupIngress" : [
+          { "IpProtocol" : "tcp", "FromPort" : "443", "ToPort" : "443", "CidrIp" : "0.0.0.0/0" }
+        ]
+      }
+    },
+    "ShibbolethEC2SecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Condition" : "CreateShibboleth",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" },
+        "GroupDescription" : "Shibboleth EC2 Security Group",
+        "SecurityGroupIngress" : [
+          { "IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "52.7.155.51/32" },
+          { "IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "52.31.180.151/32" },
+          { "IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "SourceSecurityGroupId" : { "Ref" : "BastionSecurityGroup" } },
+          { "IpProtocol" : "tcp", "FromPort" : "8080", "ToPort" : "8080", "SourceSecurityGroupId" : { "Ref" : "ShibbolethELBSecurityGroup" } }
+        ]
+      }
+    },
+    "ShibbolethEC2IngressAtyponRDS": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Condition" : "CreateShibboleth",
+      "Properties": {
+        "IpProtocol": "tcp",
+        "FromPort": "1433",
+        "ToPort": "1433",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethEC2SecurityGroup",
+            "GroupId"
+          ]
+        },
+        "GroupId": { "Ref": "RDSSecurityGroup" }
+      }
+    },
+    "ShibbolethEC2Ingress3417Atyphon" : {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Condition" : "CreateShibboleth",
+      "Properties":{
+        "IpProtocol": "tcp",
+        "FromPort": "3417",
+        "ToPort": "3417",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethEC2SecurityGroup",
+            "GroupId"
+          ]
+        },
+        "GroupId": {"Ref":"AtyponSecurityGroupId"}
+      }
+    },
+	"ShibbolethEC2Ingress3417ShibbolethEC2" : {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Condition" : "CreateShibboleth",
+      "Properties":{
+        "IpProtocol": "tcp",
+        "FromPort": "3417",
+        "ToPort": "3417",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethEC2SecurityGroup",
+            "GroupId"
+          ]
+        },
+        "GroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethEC2SecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "ShibbolethEC2Ingress16123AtyponELB" : {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Condition" : "CreateShibboleth",
+      "Properties":{
+        "IpProtocol": "tcp",
+        "FromPort": { "Ref": "AtyponPublicPort" },
+        "ToPort": { "Ref": "AtyponPublicPort" },
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethEC2SecurityGroup",
+            "GroupId"
+          ]
+        },
+        "GroupId": { "Ref": "AtyponELBSecurityGroupId"}
+      }
+    },
+    "ShibbolethEC2IngressAtyponELB" : {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Condition" : "CreateShibboleth",
+      "Properties":{
+        "IpProtocol": "tcp",
+        "FromPort": "3410",
+        "ToPort": "3412",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethEC2SecurityGroup",
+            "GroupId"
+          ]
+        },
+        "GroupId": { "Ref": "AtyponELBSecurityGroupId"}
+      }
+    },
+    "ShibbolethEC2IngressAtyponEC2" : {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Condition" : "CreateShibboleth",
+      "Properties":{
+        "IpProtocol": "tcp",
+        "FromPort": "3410",
+        "ToPort": "3412",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethEC2SecurityGroup",
+            "GroupId"
+          ]
+        },
+        "GroupId": {"Ref":"AtyponSecurityGroupId"}
+      }
+    },
+    "ShibbolethEC2Ingress16123ShibbolethELB" : {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Condition" : "CreateShibboleth",
+      "Properties":{
+        "IpProtocol": "tcp",
+        "FromPort": { "Ref": "AtyponPublicPort" },
+        "ToPort": { "Ref": "AtyponPublicPort" },
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethELBSecurityGroup",
+            "GroupId"
+          ]
+        },
+        "GroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethEC2SecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "ShibbolethEC2Ingress8080ShibbolethELB" : {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Condition" : "CreateShibboleth",
+      "Properties":{
+        "IpProtocol": "tcp",
+        "FromPort": "8080",
+        "ToPort": "8080",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethELBSecurityGroup",
+            "GroupId"
+          ]
+        },
+        "GroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethEC2SecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+	"AtyponEC2Ingress3417ShibbolethEC2" : {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Condition" : "CreateShibboleth",
+      "Properties":{
+        "IpProtocol": "tcp",
+        "FromPort": "3417",
+        "ToPort": "3417",
+        "SourceSecurityGroupId": {"Fn::Join": [ "", ["", { "Ref": "AtyponSecurityGroupId" } ] ]},
+        "GroupId": {
+          "Fn::GetAtt": [
+            "ShibbolethEC2SecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "Description": "Create Environment SSM Parameters",
+   "Resources": {
+      "ShibbolethSSMEnvironment": {
+         "Type": "AWS::SSM::Parameter",
+         "Properties": {
+            "Name": "shibboleth-chef-Environment",
+            "Type": "String",
+            "Value": { "Ref":"Environment" },
+            "Description": "Shibboleth Environment"
+            }
+        },
+        "ShibbolethSSMHostedZone": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-HostedZone",
+               "Type": "String",
+               "Value": { "Ref":"HostedZone" },
+               "Description": "Shibboleth HostedZone"
+            }
+         },
+         "ShibbolethSSMLambdaPrincipalARN": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-LambdaPrincipalARN",
+               "Type": "String",
+               "Value": { "Ref":"LambdaPrincipalARN" },
+               "Description": "Shibboleth LambdaPrincipalARN"
+            }
+         },
+         "ShibbolethSSMS3TemplateBucketName": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-S3TemplateBucketName",
+               "Type": "String",
+               "Value": { "Ref":"S3TemplateBucketName" },
+               "Description": "Shibboleth S3TemplateBucketName"
+            }
+         },
+         "ShibbolethSSMCESaccountID": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-CESaccountID",
+               "Type": "String",
+               "Value": { "Ref":"CESaccountID" },
+               "Description": "Shibboleth CES Account ID"
+            }
+         },
+         "ShibbolethSSMApiSAMLAuthUrl": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-ApiSAMLAuthUrl",
+               "Type": "String",
+               "Value": { "Ref":"ApiSAMLAuthUrl" },
+               "Description": "Shibboleth ApiSAMLAuthUrl"
+            }
+         },
+         "ShibbolethSSMAtyponInternalLoadBalancer": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-AtyponInternalLoadBalancer",
+               "Type": "String",
+               "Value": { "Ref":"AtyponInternalLoadBalancer" },
+               "Description": "Shibboleth AtyponInternalLoadBalancer"
+            }
+         },
+         "ShibbolethSSMRDSMasterUser": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-RDSMasterUser",
+               "Type": "String",
+               "Value": { "Ref":"RDSMasterUser" },
+               "Description": "Shibboleth RDSMasterUser"
+            }
+         },
+         "ShibbolethSSMRDSMasterPassword": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-RDSMasterPassword",
+               "Type": "String",
+               "Value": { "Ref":"RDSMasterPassword" },
+               "Description": "Shibboleth RDSMasterPassword"
+            }
+         },
+         "ShibbolethSSMRegion": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-Region",
+               "Type": "String",
+               "Value": { "Ref" : "AWS::Region" },
+               "Description": "Shibboleth Region"
+            }
+         },
+         "ShibbolethSSMStackName": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-StackName",
+               "Type": "String",
+               "Value": { "Ref" : "AWS::StackName" },
+               "Description": "Shibboleth StackName"
+            }
+         },
+         "ShibbolethSSMLogentries": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-Logentries",
+               "Type": "String",
+               "Value": { "Ref":"ShibbolethLogentries" },
+               "Description": "Shibboleth Logentries, needs to be Ref : Logentries when going live"
+            }
+         },
+         "ShibbolethSSMCESHostedZone": {
+            "Type": "AWS::SSM::Parameter",
+            "Properties": {
+               "Name": "shibboleth-chef-CESHostedZone",
+               "Type": "String",
+               "Value": { "Ref" : "CESHostedZone" },
+               "Description": "Shibboleth CESHostedZone"
+            }
+         }
+    },
+	"ShibbolethServer" : {
+      "Type" : "AWS::EC2::Instance",
+      "Condition" : "CreateShibboleth",
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+            "ConfigureShibbolethServer" : [ "ConfigFilesAndStart" ,"CopyPrivateKey"]
+          },
+          "ConfigFilesAndStart" : {
+            "files" : {
+              "/opt/shibboleth-idp/conf/idp.properties" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/idp.properties" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000600",
+                "owner" : "tomcat",
+                "group" : "tomcat"
+              },    
+              "/opt/shibboleth-idp/conf/attribute-resolver.xml" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/attribute-resolver.xml" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000600",
+                "owner" : "tomcat",
+                "group" : "tomcat"
+              },
+              "/root/EnvVariables.properties" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/EnvVariables.properties" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000664",
+                "owner" : "root",
+                "group" : "root"
+              },
+              "/root/shibboleth-configurer.sh" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/shibboleth-configurer.sh" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000755",
+                "owner" : "root",
+                "group" : "root"
+              },
+                "/tmp/AmazonCloudWatchAgent/AmazonCloudWatchAgent.zip": {
+                    "source": "https://s3.amazonaws.com/amazoncloudwatch-agent/linux/amd64/latest/AmazonCloudWatchAgent.zip",
+                    "authentication": "S3AccessCreds",
+                    "mode": "000755",
+                    "owner": "root",
+                    "group": "root"
+                },
+                "/opt/cwagent/config.json": {
+                    "source": {
+                        "Fn::Join": ["", ["http://", {
+                            "Ref": "S3TemplateBucketName"
+                        }, ".s3.amazonaws.com/configs/cw-monitor-config.json"]]
+                    },
+                    "authentication": "S3AccessCreds",
+                    "mode": "000644",
+                    "owner": "root",
+                    "group": "root"
+                },
+              "/opt/shibboleth-idp/metadata/CES.xml" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/CES.xml" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000600",
+                "owner" : "tomcat",
+                "group" : "tomcat"
+              },
+              "/opt/shibboleth-idp/metadata/OLB.xml" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/OLB.xml" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000600",
+                "owner" : "tomcat",
+                "group" : "tomcat"
+              },
+              "/opt/shibboleth-idp/metadata/OLB_MOBILE.xml" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/MOBILE.xml" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000600",
+                "owner" : "tomcat",
+                "group" : "tomcat"
+              },
+			  "/opt/shibboleth-idp/metadata/ORB.xml" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/ORB.xml" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000600",
+                "owner" : "tomcat",
+                "group" : "tomcat"
+              },
+			  "/opt/shibboleth-idp/metadata/ORB_MOBILE.xml" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/ORB_MOBILE.xml" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000600",
+                "owner" : "tomcat",
+                "group" : "tomcat"
+              },
+              "/opt/logentries/configure.sh" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/shibboleth-le-configure.sh" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000755",
+                "owner" : "root",
+                "group" : "root"
+              }, 
+              "/opt/shibboleth-idp/edit-webapp/erightsConnection.properties" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/erightsConnection.properties" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000600",
+                "owner" : "tomcat",
+                "group" : "tomcat"
+              },
+              "/opt/shibboleth-idp/messages/messages.properties" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/messages.properties" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000664",
+                "owner" : "root",
+                "group" : "root"
+              } 
+            },
+            "commands" : {
+                "AAinstallSSMAgent": {
+                    "command": "mkdir -p /tmp/ssm && cd /tmp/ssm && sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm",
+                    "ignoreErrors": "true"
+                },                  
+              "AsedAWSaccount" : {
+                "command" : { "Fn::Join" : [ "", [ "/bin/sed -i 's/|AWSACCOUNT|/", { "Ref" : "CESaccountID" }, "/g' /opt/shibboleth-idp/edit-webapp/erightsConnection.properties" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              },
+              "AsedLambdaPrincipalARN" : {
+                "command" : { "Fn::Join" : [ "", [ "/usr/bin/rpl '|LAMBDAPRINCIPALARN|' '", { "Ref" : "LambdaPrincipalARN" }, "' /opt/shibboleth-idp/edit-webapp/erightsConnection.properties" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              },  
+			  "BsedApiSamlAuthUrlCes" : {
+				"command" : { "Fn::Join" : [ "", [ "/usr/bin/rpl '|APICESURL|' '", { "Ref" : "ApiSAMLAuthUrl" }, "' /opt/shibboleth-idp/metadata/CES.xml" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+			  },
+			  "BsedApiSamlAuthUrlOLB" : {
+				"command" : { "Fn::Join" : [ "", [ "/usr/bin/rpl '|APICESURL|' '", { "Ref" : "ApiSAMLAuthUrl" }, "' /opt/shibboleth-idp/metadata/OLB.xml" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+			  },
+			  "BsedApiSamlAuthUrlORB" : {
+				"command" : { "Fn::Join" : [ "", [ "/usr/bin/rpl '|APICESURL|' '", { "Ref" : "ApiSAMLAuthUrl" }, "' /opt/shibboleth-idp/metadata/ORB.xml" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+			  },
+			  "BsedApiSamlAuthUrlMobile" : {
+				"command" : { "Fn::Join" : [ "", [ "/usr/bin/rpl '|APICESURL|' '", { "Ref" : "ApiSAMLAuthUrl" }, "' /opt/shibboleth-idp/metadata/OLB_MOBILE.xml" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+			  },
+			  "BsedApiSamlAuthUrlOrbMobile" : {
+				"command" : { "Fn::Join" : [ "", [ "/usr/bin/rpl '|APICESURL|' '", { "Ref" : "ApiSAMLAuthUrl" }, "' /opt/shibboleth-idp/metadata/ORB_MOBILE.xml" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+			  },
+			  "CsedAtyponInternalLbUrl" : {
+                "command" : { "Fn::Join" : [ "", [ "/bin/sed -i 's/|INTERNALATYPONLBURL|/", { "Ref" : "AtyponInternalLoadBalancer" }, "/g' /opt/shibboleth-idp/edit-webapp/erightsConnection.properties" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              },
+			  "CsedAtyponInternalLbDnsUrl" : {
+                "command" : { "Fn::Join" : [ "", [ "/bin/sed -i 's/|INTERNALATYPONLBDNSURL|/", { "Fn::Join" : [ "", [ "rightsuite-int-elb.", { "Ref" : "Environment"}, ".", { "Ref" : "HostedZone" } ] ] }, "/g' /opt/shibboleth-idp/edit-webapp/erightsConnection.properties" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              },
+              "CsedMainEnv" : {
+                "command" : { "Fn::Join" : [ "", [ "/bin/sed -i 's/|ENVIRONMENT|/", { "Ref" : "Environment" }, "/g' /opt/shibboleth-idp/conf/idp.properties" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              },
+              "CsedMainDomain" : {
+                "command" : { "Fn::Join" : [ "", [ "/bin/sed -i 's/|DOMAIN|/", { "Ref" : "HostedZone" }, "/g' /opt/shibboleth-idp/conf/idp.properties" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              },
+              "CsedMainDBuser" : {
+                "command" : { "Fn::Join" : [ "", [ "/bin/sed -i 's/|DBUSER|/", { "Ref" : "RDSMasterUser" }, "/g' /opt/shibboleth-idp/conf/idp.properties" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              },
+              "CsedMainDBpw" : {
+                "command" : { "Fn::Join" : [ "", [ "/bin/sed -i 's/|DBPASSWD|/", { "Ref" : "RDSMasterPassword" }, "/g' /opt/shibboleth-idp/conf/idp.properties" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              },
+			  "DAcreatekeypairdirs" : {
+                "command" : "mkdir -p /usr/share/tomcat8/keypair",
+                "ignoreErrors" : "false"
+              },
+                "installCWAgent": {
+                    "command": "cd /tmp/AmazonCloudWatchAgent && unzip -o AmazonCloudWatchAgent.zip && /bin/bash /tmp/AmazonCloudWatchAgent/install.sh",
+                    "ignoreErrors": "true"
+                }, 
+              "DAConfigShibbo" : {
+                "command" : "/bin/bash /root/shibboleth-configurer.sh",
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              }, 
+              "DBuildShibbo" : {
+                "command" : "/bin/bash /opt/shibboleth-idp/bin/build.sh -Didp.target.dir=/opt/shibboleth-idp",
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              }
+            }
+          },
+		  "CopyPrivateKey" : {
+			"files" : {
+				"/usr/share/tomcat8/keypair/PrivateKey" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/PrivateKey" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000664",
+                "owner" : "tomcat",
+                "group" : "tomcat"
+				},
+                "/usr/share/tomcat8/keypair/PublicKey" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/configs/PublicKey" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000664",
+                "owner" : "tomcat",
+                "group" : "tomcat"
+				}
+			},
+			"commands" : {
+              "AConfigPublicKey" : {
+                "command" : { "Fn::Join" : [ "", [ "/bin/sed -i \"s?|SHIBBOLETHPUBLICKEY|?", "$(cat /usr/share/tomcat8/keypair/PublicKey)" , "?g\" /opt/shibboleth-idp/messages/messages.properties" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              },
+              "AConfigHostname" : {
+                "command" : { "Fn::Join" : [ "", [ "/bin/sed -i 's/|CESHostedZone|/", { "Ref" : "CESHostedZone" }, "/g' /opt/shibboleth-idp/messages/messages.properties" ] ] },
+                "cwd" : "~",
+                "ignoreErrors" : "false"
+              }
+			}
+		  }
+        },
+        "AWS::CloudFormation::Authentication" : {
+          "S3AccessCreds" : {
+            "type" : "S3",
+            "buckets" : [ { "Ref": "S3TemplateBucketName" } ],
+            "roleName": { "Ref": "AtyponAppRole" }
+          }
+        }
+      },
+      "Properties" : {
+        "ImageId" : { "Ref" : "AMIshibboleth" },
+        "KeyName" : { "Ref" : "KeyName" },
+        "InstanceType" : "m3.medium",
+        "IamInstanceProfile": { "Ref" : "AtyponInstanceProfile" },
+        "SecurityGroupIds" : [ { "Ref" : "ShibbolethEC2SecurityGroup" } ],
+        "SubnetId": { "Ref" : "AtyponSubnet1c" },
+        "BlockDeviceMappings" : [
+          {
+            "DeviceName" : "/dev/xvda",
+            "Ebs" : {
+              "VolumeSize" : "20",
+              "VolumeType" : "gp2"
+            }
+          }
+        ],
+        "Tags" : [
+          { "Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} },
+          { "Key" : "Environment", "Value" : { "Ref" : "Environment"} },
+          { "Key" : "Type", "Value" : "image-server" },
+          { "Key" : "Name", "Value" : { "Fn::Join" : [ ".", [ "shibboleth-image", { "Ref" : "Environment" }, { "Ref" : "HostedZone" } ] ] } }
+        ],
+        "UserData" : { "Fn::Base64" : { "Fn::Join" : [ "", [
+          "#!/bin/bash -xe\n",
+          "# Install the files and packages from the metadata\n",
+          "source /root/.bash_profile\n",
+          "export HOME=/root\n",
+          "printenv > /root/cf-init-env\n",
+          "/usr/bin/yum -y install rpl --enablerepo=epel\n",
+          "/opt/aws/bin/cfn-init -v --stack ", { "Ref" : "AWS::StackName" }, " --resource ShibbolethServer --configsets ConfigureShibbolethServer --region ", { "Ref" : "AWS::Region" }, "\n",
+          "#Configure config files based on current environment\n",
+          "sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/cwagent/config.json -s \n",
+          "echo `ifconfig  | grep 'inet addr:'| grep -v '127.0.0.1' | cut -d: -f2 | awk '{ print $1}'` `hostname -s` `hostname` >>/etc/hosts\n",
+          "if [ '", { "Ref" : "ShibbolethLogentries" }, "' == 'enable' ];then\n",
+          "  /opt/logentries/configure.sh '", "Shibboleth ", { "Ref" : "Environment" }, ".", { "Ref" : "HostedZone" }, "'\n",
+          "fi\n",
+          "/usr/sbin/usermod -d /usr/share/tomcat8 tomcat\n",
+          "/etc/init.d/tomcat8 start\n"
+        ] ] } }
+      }
+    },
+    "ShibbolethEIP" : {
+      "Type" : "AWS::EC2::EIP",
+      "Condition" : "CreateShibboleth",
+      "Properties" : {
+        "InstanceId" : { "Ref" : "ShibbolethServer" }
+      }
+    },
+    "ShibbolethServerDNSRecord" : {
+      "Type" : "AWS::Route53::RecordSet",
+      "Condition" : "CreateShibboleth",
+      "DependsOn" : "ShibbolethEIP",
+      "Properties" : {
+        "HostedZoneName" : { "Fn::Join" : [ "", [ { "Ref" : "HostedZone" }, "." ] ] },
+        "Comment" : "ShibbolethServer",
+        "Name" : { "Fn::Join" : [ "", [ "shibbolethServer-image.", { "Ref" : "Environment" }, ".", { "Ref" : "HostedZone" } ,"." ] ] },
+        "Type" : "CNAME",
+        "TTL" : "900",
+        "ResourceRecords" : [
+          { "Fn::GetAtt" : [ "ShibbolethServer", "PublicDnsName" ] }
+        ]
+      }
+    },
+    "ShibbolethLaunchConfig": {
+    "Condition" : "CreateShibboleth",
+    "Type": "AWS::AutoScaling::LaunchConfiguration",
+    "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+            "ConfigureShibbolethServer" : [ "ConfigFilesAndStart"]
+          },
+          "ConfigFilesAndStart" : {
+            "files" : {
+              "home/ec2-user/shibboleth-gen.sh" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/chef/shibboleth-gen.rb" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000755",
+                "owner" : "root",
+                "group" : "root"
+              },
+              "home/ec2-user/EnvVariables.rb" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/chef/EnvVariables.rb" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              },
+              "home/ec2-user/get_configs.rb" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/chef/get_configs.rb" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              },
+              "home/ec2-user/commands.rb" : {
+                "source": { "Fn::Join" : [ "", [ "http://", { "Ref": "S3TemplateBucketName" }, ".s3.amazonaws.com/chef/commands.rb" ] ] },
+                "authentication":"S3AccessCreds",
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              }
+            },
+            "commands" : {
+              "InstallCHEFDK": {
+                "command": "sudo curl -L https://omnitruck.chef.io/install.sh",
+                "ignoreErrors": "false"
+            },
+              "PrepareCHEF": {
+              "command": "printf \"root = File.absolute_path(File.dirname(__FILE__))\n\nfile_cache_path root\ncookbook_path root + '/cookbooks'\n\" > /home/ec2-user/solo.rb",
+              "ignoreErrors": "false"
+            },
+              "RunCHEF": {
+              "command": "sudo chef-solo -c /home/ec2-user/solo.rb shibboleth-gen.rb",
+              "ignoreErrors": "false"
+            }
+          }  
+        }
+      },
+        "AWS::CloudFormation::Authentication" : {
+          "S3AccessCreds" : {
+            "type" : "S3",
+            "buckets" : [ { "Ref": "S3TemplateBucketName" } ],
+            "roleName": { "Ref": "AtyponAppRole" }
+          }
+        }
+      },
+    "Properties": {
+      "KeyName": {
+        "Ref": "KeyName"
+      },
+      "ImageId": {
+        "Ref": "AMIshibboleth"
+      },
+      "IamInstanceProfile": {
+        "Ref": "AtyponInstanceProfile"
+      },
+      "SecurityGroups": [
+        {
+          "Ref": "ShibbolethEC2SecurityGroup"
+        }
+      ],
+      "InstanceType": "m3.medium",
+      "BlockDeviceMappings": [
+        {
+          "DeviceName": "/dev/xvda",
+          "Ebs": {
+            "VolumeSize": "20",
+            "VolumeType": "gp2"
+          }
+        }
+      ],
+      "UserData": {
+      }
+    }
+  },
+    "ShibbolethScaleUpPolicy" : {
+      "Condition" : "CreateShibboleth",
+      "Type" : "AWS::AutoScaling::ScalingPolicy",
+      "Properties" : {
+        "AdjustmentType" : "ChangeInCapacity",
+        "AutoScalingGroupName" : { "Ref" : "ShibbolethAutoScaleGroup" },
+        "Cooldown" : "400",
+        "ScalingAdjustment" : "1"
+      }
+    },
+    "ShibbolethCPUAlarmHigh": {
+      "Condition" : "CreateShibboleth",
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "EvaluationPeriods": "10",
+        "Statistic": "Average",
+        "Threshold": "50",
+        "AlarmDescription": "Alarm if CPU too high or metric disappears indicating instance is down",
+        "Period": "60",
+        "AlarmActions": [ { "Ref": "ShibbolethScaleUpPolicy" } ],
+        "Namespace": "AWS/EC2",
+        "Dimensions": [ {
+          "Name": "AutoScalingGroupName",
+          "Value": { "Ref": "ShibbolethAutoScaleGroup" }
+        } ],
+        "ComparisonOperator": "GreaterThanThreshold",
+        "MetricName": "CPUUtilization"
+      }
+    },
+    "ShibbolethScaleDownPolicy" : {
+      "Condition" : "CreateShibboleth",
+      "Type" : "AWS::AutoScaling::ScalingPolicy",
+      "Properties" : {
+        "AdjustmentType" : "ChangeInCapacity",
+        "AutoScalingGroupName" : { "Ref" : "ShibbolethAutoScaleGroup" },
+        "Cooldown" : "400",
+        "ScalingAdjustment" : "-1"
+      }
+    },
+    "ShibbolethCPUAlarmLow": {
+      "Condition" : "CreateShibboleth",
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "EvaluationPeriods": "15",
+        "Statistic": "Average",
+        "Threshold": "30",
+        "AlarmDescription": "Alarm if CPU too low",
+        "Period": "60",
+        "AlarmActions": [ { "Ref": "ShibbolethScaleDownPolicy" } ],
+        "Namespace": "AWS/EC2",
+        "Dimensions": [ {
+          "Name": "AutoScalingGroupName",
+          "Value": { "Ref": "ShibbolethAutoScaleGroup" }
+        } ],
+        "ComparisonOperator": "LessThanThreshold",
+        "MetricName": "CPUUtilization"
+      }
+    },
+    "ShibbolethAutoScaleGroup" : {
+      "Type" : "AWS::AutoScaling::AutoScalingGroup",
+      "Condition" : "CreateShibboleth",
+      "Properties" : {
+        "Cooldown" : "600",
+        "AvailabilityZones" : { "Fn::GetAZs" : { "Ref" : "AWS::Region" } }, 
+        "HealthCheckGracePeriod" : "540",
+        "VPCZoneIdentifier" : [ {"Ref":"AtyponSubnet1a"}, {"Ref":"AtyponSubnet1b"}, {"Ref":"AtyponSubnet1c"} ],
+        "HealthCheckType" : "ELB",
+        "LaunchConfigurationName" : { "Ref" : "ShibbolethLaunchConfig" },
+        "LoadBalancerNames" : [ { "Ref" : "ShibbolethLoadBalancer" } ],
+        "MinSize": { "Fn::Select" : [ "0", { "Ref" : "ShibbolethASGinitialSize" } ] },
+        "DesiredCapacity": { "Fn::Select" : [ "1", { "Ref" : "ShibbolethASGinitialSize" } ] },
+        "MaxSize": { "Fn::Select" : [ "2", { "Ref" : "ShibbolethASGinitialSize" } ] },
+        "Tags" : [ 
+          { "Key" : "Environment", "Value" : { "Ref" : "Environment"}, "PropagateAtLaunch" : "true" },
+          { "Key" : "Type", "Value" : "app-server", "PropagateAtLaunch" : "true" },
+          {
+          "Key" : "Name",
+          "Value" : { "Fn::Join" : [ "-", [ "Shibboleth", "Web", "Server", { "Ref": "Environment" } ] ] } ,
+          "PropagateAtLaunch" : "true"
+        } ]
+      },
+      "UpdatePolicy" : {
+        "AutoScalingReplacingUpdate" : {
+          "WillReplace" : "true"
+        }
+      }
+    },
+    "ShibbolethLoadBalancer" : {
+      "Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Condition" : "CreateShibboleth",
+      "Properties" : {
+        "LBCookieStickinessPolicy" : [
+          {
+            "PolicyName" : "ShibbolethELBStickinessPolicy"
+          }
+        ],
+        "Listeners" : [
+        { 
+          "LoadBalancerPort" : "443",
+          "InstancePort" : "8080",
+          "InstanceProtocol" : "HTTP",
+          "SSLCertificateId" : { "Ref": "ELBSSLARN" },
+          "Protocol" : "HTTPS",
+          "PolicyNames" : ["ShibbolethELBStickinessPolicy"]
+        }
+        ],
+        "ConnectionDrainingPolicy": {
+          "Enabled" : "true",
+          "Timeout" : "60"
+        },
+        "Subnets" : [
+          {"Ref":"AtyponSubnet1a"}, {"Ref":"AtyponSubnet1b"}, {"Ref":"AtyponSubnet1c"}
+        ],
+        "SecurityGroups": [ { "Ref" : "ShibbolethELBSecurityGroup" } ],
+        "CrossZone": true,
+        "ConnectionSettings": {
+          "IdleTimeout" : "240"
+        },
+        "HealthCheck" : {
+          "Target" : "HTTP:8080/idp/shibboleth",
+          "HealthyThreshold" : "2",
+          "UnhealthyThreshold" : "4",
+          "Interval" : "30",
+          "Timeout" : "10"
+        }
+      }
+    },
+    "ShibbolethLaodBalancerDNSRecord" : {
+      "Type" : "AWS::Route53::RecordSet",
+      "Condition" : "CreateShibboleth",
+      "Properties" : {
+         "HostedZoneName" : { "Fn::Join" : [ "", [ { "Ref" : "HostedZone" }, "." ] ] },
+         "Comment" : "Shibboleth ELB",
+         "Name" : { "Fn::Join" : [ "", [ "shibboleth.", { "Ref" : "Environment" }, ".", { "Ref" : "HostedZone" } ,"." ] ] },
+         "Type" : "CNAME",
+         "TTL" : "900",
+         "ResourceRecords" : [
+            { "Fn::GetAtt" : [ "ShibbolethLoadBalancer", "CanonicalHostedZoneName" ] }
+         ]
+      }
+    }    
+  },
+
+  "Outputs" : {
+    
+  }
+}
